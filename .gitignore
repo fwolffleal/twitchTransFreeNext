@@ -1,0 +1,9 @@
+
+*.xml
+venv/
+tmp/
+_MEI46682/
+.idea/
+__pycache__/
+build/
+dist

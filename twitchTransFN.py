@@ -173,64 +173,81 @@ async def event_message(ctx):
     in_text = message
     print(in_text)
 
-    # 言語検出 -----------------------
-    lang_detect = ''
-    try:
-        # lang_detect = translator.detect(in_text).lang
-        lang_detect = translator.detect(in_text)[0]
-    except Exception as e:
-        if config.Debug: print(e)
-
-    # 翻訳先言語の選択 ---------------
-    lang_dest = config.lang_TransToHome if lang_detect != config.lang_TransToHome else config.lang_HomeToOther
-
+    lang_dest = ''
     # 翻訳先言語が文中で指定されてたら変更 -------
     m = in_text.split(':')
     if len(m) >= 2:
         if m[0] in TargetLangs:
             lang_dest = m[0]
             in_text = ':'.join(m[1:])
+
+    # 言語検出 -----------------------
+    lang_detect = lang_dest if lang_dest != '' else ''
+    if lang_detect == '':
+        try:
+            lang_detect = translator.detect(in_text)[0]
+        except Exception as e:
+            if config.Debug:
+                print(e)
+
+    if config.Debug:
+        print(f"lang_detected:{lang_detect} in_text:{in_text}")
+
+    if lang_detect != config.lang_TransToHome:
+        lang_dest = config.lang_TransToHome
+
+        if lang_detect not in Ignore_Lang:
+            print(f"from_lang:{lang_detect} to_lang:{lang_dest}")
+
+            translated_text = await translate_text_to_lang_dest(ctx, in_text, lang_dest, lang_detect, user)
+
+            if config.gTTS_Out and translated_text != '' and is_valid_message(translated_text):
+                gTTS_queue.put([translated_text, lang_dest])
+
     else:
-        # 翻訳先が (:)で指定されてなくて、
-        # なおかつ 無視対象言語だったら全部無視して終了↑ ---------
-        if lang_detect in Ignore_Lang:
-            return
+        if config.gTTS_In and in_text != '' and is_valid_message(in_text):
+            gTTS_queue.put([in_text, lang_detect])
 
-    if config.Debug: print(f"lang_dest:{lang_dest} in_text:{in_text}")
-
-    # 音声合成（入力文） --------------
-    # if len(in_text) > int(config.TooLong_Cut):
-    #     in_text = in_text[0:int(config.TooLong_Cut)]
-    if config.gTTS_In: gTTS_queue.put([in_text, lang_detect])
-
-
-    ################################
-    # 翻訳 --------------------------
-    translatedText = ''
-    try:
-        # translatedText = translator.translate(in_text, src=lang_detect, dest=lang_dest).text
-        translatedText = translator.translate(in_text, lang_dest)
-    except Exception as e:
-        if config.Debug: print(e)
-
-    # チャットへの投稿 ----------------
-    # 投稿内容整形 & 投稿
-    out_text = translatedText
-    if config.Show_ByName:
-        out_text = '{} [by {}]'.format(out_text, user)            
-    if config.Show_ByLang:
-        out_text = '{} ({} > {})'.format(out_text, lang_detect, lang_dest)
-    await ctx.channel.send("/me " + out_text)
-
-    # コンソールへの表示 --------------
-    print(out_text)
-
-    # 音声合成（出力文） --------------
-    # if len(translatedText) > int(config.TooLong_Cut):
-    #     translatedText = translatedText[0:int(config.TooLong_Cut)]
-    if config.gTTS_Out: gTTS_queue.put([translatedText, lang_dest])
+        for lang in config.lang_HomeToOthers:
+            await translate_text_to_lang_dest(ctx, in_text, lang, config.lang_TransToHome, user)
+            time.sleep(1)
 
     print()
+
+
+def is_valid_message(message):
+    split_by_spaces = message.split(' ')
+
+    print(split_by_spaces)
+    if len(split_by_spaces) < 1:
+        return False
+    elif len(split_by_spaces) == 1:
+        line = str(split_by_spaces[0])
+        return len(line) <= 15
+    else:
+        return True
+
+
+async def translate_text_to_lang_dest(ctx, in_text, lang_tgt, lang_src, user):
+    try:
+        translated_text = translator.translate(in_text, lang_tgt, lang_src)
+    except Exception as e:
+        if config.Debug:
+            print(e)
+        return ''
+    else:
+        out_text = translated_text
+
+        if config.Show_ByName:
+            out_text = '{} [by {}]'.format(out_text, user)
+
+        if config.Show_ByLang:
+            out_text = '{} ({} > {})'.format(out_text, lang_src, lang_tgt)
+
+        await ctx.channel.send("/me " + out_text)
+
+        print(out_text)
+        return translated_text
 
 
 ##############################
